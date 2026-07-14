@@ -29,8 +29,10 @@ copy entirely.
   producing `~/.Xilinx/wi_authentication_key` on the host. The token is
   passed to the build as a BuildKit secret — credentials never enter the
   build.
-- Use `config/xsetup_config_25.txt` (Vitis Unified config) as the base
-  install config; delete the legacy `config/install_config.txt`.
+- Use `config/install_config.txt` (installer-generated Vitis Unified
+  config: Vitis platform with Artix-7, Zynq-7000, Zynq UltraScale+
+  MPSoC, and Kria SOM/K26 device support) as the base install config,
+  keeping the installer's native naming scheme.
 - Makefile: new `build-base` and `build` targets with proper dependency
   ordering; remove `HOST_TOOL_ARCHIVE_NAME` plumbing.
 - README/AGENTS: document the two-stage build flow and credentials
@@ -55,8 +57,8 @@ copy entirely.
 - `docker/Dockerfile` split/replaced; `docker/udev_stub.c` moves to the
   tools overlay context.
 - `Makefile`: target restructure; `build.stamp` semantics change.
-- `config/`: `xsetup_config_25.txt` becomes the only install config;
-  `install_config.txt` removed.
+- `config/`: installer-generated `install_config.txt` (Vitis Unified) is
+  the only install config; the interim `xsetup_config_25.txt` removed.
 - `scripts/run.vivado.sh`: unchanged behavior, but image tag source
   changes (`xilinx-vivado:<version>` now built from the tools overlay).
 - Users must obtain AMD credentials and the slim installer instead of the

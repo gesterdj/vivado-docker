@@ -53,7 +53,7 @@ The base image SHALL install Vivado/Vitis in unattended batch mode:
   (`id=xilinx_token`) at the path xsetup expects; it SHALL NOT be passed
   as a build arg, COPY'd, or persisted in any layer.
 - The build SHALL run xsetup with `--batch Install`, the config from
-  `config/xsetup_config_25.txt`, and
+  `config/install_config.txt`, and
   `--agree XilinxEULA,3rdPartyEULA`.
 - Post-install, the build SHALL remove installer staging and download
   caches in the same layer.

@@ -39,7 +39,7 @@ build-base: base.stamp
 
 # Rebuild when the stamp is stale OR the image no longer exists
 # (stamps alone lie after `docker rmi`).
-base.stamp: docker/base/Dockerfile config/xsetup_config_25.txt
+base.stamp: docker/base/Dockerfile config/install_config.txt
 	@if [[ ! -f "$(AUTH_TOKEN_FILE)" ]]; then \
 		echo "No auth token at $(AUTH_TOKEN_FILE) — run 'make auth-token INSTALLER=<slim-installer.bin>' first"; \
 		exit 1; \

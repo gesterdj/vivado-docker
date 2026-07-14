@@ -65,7 +65,7 @@ ENV LC_ALL=en_US.UTF-8
 #   it exists only for the duration of this RUN.
 # - xsetup downloads only the modules selected in the config, installs,
 #   and the download cache is removed in the same layer.
-COPY config/xsetup_config_25.txt /tmp/xilinx/xsetup_config.txt
+COPY config/install_config.txt /tmp/xilinx/xsetup_config.txt
 RUN --mount=type=bind,source=Xilinx,target=/opt/xilinx_installer \
     --mount=type=secret,id=xilinx_token,target=/root/.Xilinx/wi_authentication_key \
     "/opt/xilinx_installer/${VIVADO_VERSION}/xsetup" \

@@ -34,7 +34,7 @@ time-consuming process (multiple hours); overlay rebuilds take minutes.
 
 By default, the build installs a free-to-use selection of devices and
 tools from the Vitis Unified Software Platform, as configured in
-`config/xsetup_config_25.txt`.
+`config/install_config.txt`.
 
 ## Why?
 
@@ -70,7 +70,7 @@ This solution for dockerizing Vivado has the following known limitations:
 *   **Supported Edition:** This project installs the Vitis Unified
     Software Platform (which includes Vivado) via the AMD web installer,
     selecting only free-to-use tools and devices in
-    `config/xsetup_config_25.txt`. Paid editions and their licensing
+    `config/install_config.txt`. Paid editions and their licensing
     mechanisms are not supported.
 *   **Installer Availability:** You must download the AMD web installer
     yourself directly from AMD and log in with your own AMD account. This
@@ -128,7 +128,7 @@ archive is copied around.
     this step if a build fails to authenticate. (This deviates from the
     spec's build-arg credential approach on purpose: build args leak
     into `docker history`.)
-4.  **Review `config/xsetup_config_25.txt`:** edit `Modules=` to select
+4.  **Review `config/install_config.txt`:** edit `Modules=` to select
     the devices/tools to install.
 
 ### Building the Container
@@ -225,13 +225,13 @@ to a massive Docker image.
 A: This script builds Vivado in a headless environment (without a graphical
 display). Some Vivado installation options or components might require an X11
 display server during the installation itself. This script does not support such
-options. Ensure your `config/xsetup_config_25.txt` only selects components
+options. Ensure your `config/install_config.txt` only selects components
 compatible with a headless installation.
 
 **Q: How do I choose which Vivado components are installed?**
 
 A: You can customize the installation by editing
-`config/xsetup_config_25.txt` *before* starting the base build. In the
+`config/install_config.txt` *before* starting the base build. In the
 `Modules=` section, enable or disable devices/components by changing their
 value from `:0` (disabled) to `:1` (enabled). A template can be generated
 with `` `xsetup -b ConfigGen` `` from the slim installer.
