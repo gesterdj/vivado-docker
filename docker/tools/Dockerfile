@@ -67,12 +67,6 @@ COPY docker/udev_stub.c /tmp/udev_stub.c
 RUN gcc -shared -fPIC -o /opt/udev_stub.so /tmp/udev_stub.c \
     && rm /tmp/udev_stub.c
 
-# Install Xilinx USB cable drivers (for USB_DEVICE_DIR passthrough).
-# hadolint ignore=DL3003
-RUN mkdir -p /etc/udev/rules.d \
-    && cd "${VIVADO_PATH}/data/xicom/cable_drivers/lin64/install_script/install_drivers" \
-    && ./install_drivers
-
 VOLUME /src
 VOLUME /work
 

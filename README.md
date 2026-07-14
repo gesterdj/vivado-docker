@@ -270,13 +270,13 @@ path to USB devices. On Ubuntu, this path is by default `/dev/bus/usb`
 
 **Q: USB devices are still not showing up. Why?**
 
-A: Even though the generated Docker image has installed the USB drivers within
-itself, the host OS also needs the drivers installed. These can be extracted 
-from the Docker image using the following commands (note that if you use
-a different version than 2025.2, change the numbers):
+A: The image does not install USB cable drivers — the host OS needs the
+drivers installed. These can be extracted from the Docker image using the
+following commands (note that if you use a different version than 2025.2,
+change the numbers):
 ```
 docker create --name tmp xilinx-vivado:2025.2
-docker cp tmp:/opt/Xilinx/2025.2/data/xicom/cable_drivers ./cable_drivers
+docker cp tmp:/opt/Xilinx/2025.2/Vivado/data/xicom/cable_drivers ./cable_drivers
 ```
 This will extract the cable drivers for both Windows and Linux in your
 current directory. Install the appropriate drivers on the host OS. 
