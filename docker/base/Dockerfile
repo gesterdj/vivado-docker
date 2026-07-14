@@ -4,9 +4,9 @@
 # minimal; developer tooling belongs in docker/tools/Dockerfile.
 #
 # Build (from repo root):
-#   make build-base
+#   make build-base INSTALLER=<slim-installer.bin>
 # Requires:
-#   - pre-unpacked slim installer tree at ./Xilinx/<version>/
+#   - the AMD slim (web) installer .bin at the repo root
 #   - host auth token (~/.Xilinx/wi_authentication_key), see
 #     scripts/gen_auth_token.sh — passed as BuildKit secret, never
 #     stored in a layer.
@@ -16,6 +16,7 @@ FROM --platform=linux/amd64 ubuntu:22.04
 
 ARG VIVADO_VERSION=2025.2
 ARG INSTALL_TARGET_DIR=/opt/Xilinx
+ARG INSTALLER_BIN
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -60,19 +61,22 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # Authenticated batch web install.
-# - Slim installer tree bind-mounted read-only, never copied.
+# - The slim installer .bin is bind-mounted read-only, self-extracted
+#   inside this layer, and its temp files removed in the same layer —
+#   only the installed tools persist.
 # - Auth token mounted as a BuildKit secret at the path xsetup expects;
 #   it exists only for the duration of this RUN.
 # - xsetup downloads only the modules selected in the config, installs,
 #   and the download cache is removed in the same layer.
 COPY config/install_config.txt /tmp/xilinx/xsetup_config.txt
-RUN --mount=type=bind,source=Xilinx,target=/opt/xilinx_installer \
+RUN --mount=type=bind,source=${INSTALLER_BIN},target=/tmp/installer.bin \
     --mount=type=secret,id=xilinx_token,target=/root/.Xilinx/wi_authentication_key \
-    "/opt/xilinx_installer/${VIVADO_VERSION}/xsetup" \
+    sh /tmp/installer.bin --keep --noexec --target /tmp/installer \
+    && /tmp/installer/xsetup \
         --batch Install \
         --agree XilinxEULA,3rdPartyEULA \
         -c /tmp/xilinx/xsetup_config.txt \
-    && rm -rf /tmp/xilinx "${INSTALL_TARGET_DIR}/Downloads"
+    && rm -rf /tmp/installer /tmp/xilinx "${INSTALL_TARGET_DIR}/Downloads"
 
 # Tool paths and default command (spec §1; paths follow the unified
 # installer layout /opt/Xilinx/<version>/<tool> used by run.vivado.sh)

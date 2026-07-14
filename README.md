@@ -110,15 +110,13 @@ are downloaded by the AMD web installer during the base build — no ~50GB
 archive is copied around.
 
 1.  **Download the Slim (Web) Installer:** Obtain the AMD FPGAs &
-    Adaptive SoCs "Web Installer" `.bin` from AMD. You are responsible
-    for complying with all software licensing terms.
-2.  **Unpack the installer** into `./Xilinx/<version>/` at the repo root
-    (e.g., `./Xilinx/2025.2/xsetup` must exist). This tree is
-    bind-mounted into the build, never copied into a layer.
-3.  **Generate an auth token:**
+    Adaptive SoCs "Web Installer" `.bin` from AMD and place it at the
+    repo root. You are responsible for complying with all software
+    licensing terms.
+2.  **Generate an auth token:**
 
     ```bash
-    make auth-token INSTALLER=./FPGAs_AdaptiveSoCs_Unified_..._Web.bin
+    make auth-token   # auto-detects the *.bin at the repo root
     ```
 
     This runs AMD's own `AuthTokenGen` (interactive login) and writes
@@ -128,7 +126,7 @@ archive is copied around.
     this step if a build fails to authenticate. (This deviates from the
     spec's build-arg credential approach on purpose: build args leak
     into `docker history`.)
-4.  **Review `config/install_config.txt`:** edit `Modules=` to select
+3.  **Review `config/install_config.txt`:** edit `Modules=` to select
     the devices/tools to install.
 
 ### Building the Container
@@ -209,7 +207,8 @@ SRC_DIR=/path/to/fpga/project WORK_DIR=/path/to/output \
 A: The Vivado installation is very large, and the process itself is complex.
 The base build downloads the selected tool packages via the AMD web
 installer, runs the installer, and finally exports the numerous layers of
-the resulting Docker image. The slim installer tree is bind-mounted (never
+the resulting Docker image. The slim installer `.bin` is bind-mounted and
+self-extracted inside the install layer (never
 copied into the build context), and once the base image exists,
 customization rebuilds (`make build`) take only minutes. The initial base
 build will still be lengthy.

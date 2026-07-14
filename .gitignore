@@ -1,5 +1,5 @@
 *.tar.gz
 *.tar
 *.stamp
-/Xilinx/
+*.bin
 base.image.ok

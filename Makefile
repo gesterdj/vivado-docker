@@ -12,8 +12,9 @@ TOOLS_IMAGE := xilinx-vivado:$(VIVADO_VERSION)
 # base build as a BuildKit secret (never stored in an image layer).
 AUTH_TOKEN_FILE := $(HOME)/.Xilinx/wi_authentication_key
 
-# Pre-unpacked slim installer tree, expected at ./Xilinx/$(VIVADO_VERSION)/
-INSTALLER_DIR := Xilinx
+# Slim (web) installer .bin at the repo root; auto-detected, or pass
+# INSTALLER=<path> explicitly (must be inside the build context).
+INSTALLER ?= $(firstword $(wildcard *.bin))
 
 SHELL := /bin/bash
 
@@ -22,6 +23,7 @@ all:
 	@echo "BASE_IMAGE     : $(BASE_IMAGE)"
 	@echo "TOOLS_IMAGE    : $(TOOLS_IMAGE)"
 	@echo "AUTH_TOKEN     : $(AUTH_TOKEN_FILE)"
+	@echo "INSTALLER      : $(INSTALLER)"
 	@echo
 	@echo "Targets:"
 	@echo "	make auth-token INSTALLER=<slim-installer.bin>  generate auth token"
@@ -44,14 +46,15 @@ base.stamp: docker/base/Dockerfile config/install_config.txt
 		echo "No auth token at $(AUTH_TOKEN_FILE) — run 'make auth-token INSTALLER=<slim-installer.bin>' first"; \
 		exit 1; \
 	fi
-	@if [[ ! -d "$(INSTALLER_DIR)/$(VIVADO_VERSION)" ]]; then \
-		echo "No installer tree at $(INSTALLER_DIR)/$(VIVADO_VERSION)/ — download and unpack the AMD slim installer there"; \
+	@if [[ ! -f "$(INSTALLER)" ]]; then \
+		echo "No installer found — place the AMD slim installer .bin at the repo root or pass INSTALLER=<path>"; \
 		exit 1; \
 	fi
 	env DOCKER_BUILDKIT=1 docker build \
 		--platform linux/amd64 \
 		-t $(BASE_IMAGE) \
 		--build-arg VIVADO_VERSION=$(VIVADO_VERSION) \
+		--build-arg INSTALLER_BIN=$(INSTALLER) \
 		--secret id=xilinx_token,src=$(AUTH_TOKEN_FILE) \
 		-f docker/base/Dockerfile .
 	touch $@

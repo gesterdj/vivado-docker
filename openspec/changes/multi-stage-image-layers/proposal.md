@@ -22,7 +22,7 @@ copy entirely.
     minutes.
 - **BREAKING** Install method switches from local ~50GB archive
   (`HOST_TOOL_ARCHIVE_NAME` tar bind-mount) to the AMD slim web installer
-  (pre-unpacked `./Xilinx` dir bind-mount + host-generated auth token);
+  (slim installer `.bin` bind-mount + host-generated auth token);
   xsetup downloads only the modules selected in the config.
 - Add `scripts/gen_auth_token.sh` to support token generation: runs the
   downloaded slim installer with `<installer>.bin -- -b AuthTokenGen`,

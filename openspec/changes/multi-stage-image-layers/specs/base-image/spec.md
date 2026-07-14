@@ -46,9 +46,10 @@ token was not produced.
 ### Requirement: Batch web install using token secret
 The base image SHALL install Vivado/Vitis in unattended batch mode:
 
-- The pre-unpacked slim installer directory SHALL be provided via a
-  read-only BuildKit bind mount at `/opt/xilinx_installer`, never copied
-  into a layer.
+- The slim installer `.bin` SHALL be provided via a read-only BuildKit
+  bind mount, self-extracted within the install RUN, with all extraction
+  temp files removed in the same layer; installer content SHALL never be
+  copied into an image layer.
 - The host auth token SHALL be provided via a BuildKit secret mount
   (`id=xilinx_token`) at the path xsetup expects; it SHALL NOT be passed
   as a build arg, COPY'd, or persisted in any layer.

@@ -12,12 +12,12 @@
       apt with `Acquire::Retries=3` + `--no-install-recommends`,
       spec §1 minimal package list, apt cache cleanup in same layer
 - [x] 2.2 Add locale layer (`en_US.UTF-8`, `LANG`/`LC_ALL` env)
-- [x] 2.3 Add install layer: bind-mount installer dir at
-      `/opt/xilinx_installer` (read-only), secret mount `xilinx_token`
-      at xsetup's expected token path, copy
+- [x] 2.3 Add install layer: bind-mount installer .bin at
+      /tmp/installer.bin (read-only), self-extract in-layer, secret
+      mount `xilinx_token` at xsetup's expected token path, copy
       `config/install_config.txt` as xsetup config, run
       `xsetup --batch Install --agree XilinxEULA,3rdPartyEULA`, remove
-      staging/download caches in same layer
+      extraction temp files and staging/download caches in same layer
 - [x] 2.4 Set `VIVADO_PATH`/`VITIS_PATH`, prepend both `bin` dirs to
       `PATH`, `WORKDIR /workspace`, `CMD ["vivado","-mode","batch"]`
 
