@@ -50,7 +50,7 @@ Vivado installation may be sufficient.
 | Folder     | Contents                                                    |
 |------------|-------------------------------------------------------------|
 | `scripts/` | Helper scripts (`run.vivado.sh`, `gen_auth_token.sh`)       |
-| `config/`  | Installer configuration (`xsetup_config_25.txt`)            |
+| `config/`  | Installer configuration (`install_config.txt`)             |
 | `docker/`  | Container build sources; `base/` and `tools/` Dockerfiles   |
 | `docs/`    | Supplementary documentation                                 |
 
@@ -77,8 +77,8 @@ This solution for dockerizing Vivado has the following known limitations:
     repository cannot and will not provide the installer due to licensing
     and distribution restrictions.
 *   **Testing Constraints:** Thoroughly testing all possible configurations and
-    Vivado versions is challenging due to the dependency on specific, large
-    installer archives from AMD and the lengthy build times.
+    Vivado versions is challenging due to the multi-hour installer downloads
+    and build times.
 
 ## Apple Silicon / Rosetta Support
 
@@ -154,15 +154,16 @@ After a successful build, you can save the Docker image to a `.tar` archive:
 make save
 ```
 
-This archive (e.g., `xilinx-vivado.docker.tgz`) can be transferred to other
-machines. The image is too large for Docker Hub and is not hosted there.
+This archive (e.g., `xilinx-vivado.2025.2.docker.tgz`) can be transferred
+to other machines. The image is too large for Docker Hub and is not hosted
+there.
 
 ### Loading the Image
 
 To load the image from an archive:
 
 ```bash
-docker load -i xilinx-vivado.docker.tgz
+docker load -i xilinx-vivado.2025.2.docker.tgz
 ```
 
 Note: Loading very large Docker images can sometimes be unreliable. See the FAQ
@@ -208,16 +209,17 @@ A: The Vivado installation is very large, and the process itself is complex.
 The base build downloads the selected tool packages via the AMD web
 installer, runs the installer, and finally exports the numerous layers of
 the resulting Docker image. The slim installer `.bin` is bind-mounted and
-self-extracted inside the install layer (never
-copied into the build context), and once the base image exists,
-customization rebuilds (`make build`) take only minutes. The initial base
-build will still be lengthy.
+self-extracted inside the install layer (never persisted in an image
+layer), and once the base image exists, customization rebuilds
+(`make build`) take only minutes. The initial base build will still be
+lengthy.
 
-**Q: The Docker image is over 200GB. Is this normal?**
+**Q: The Docker image is huge (tens to hundreds of GB). Is this normal?**
 
-A: Yes, this is unfortunately normal. Vivado is a comprehensive tool suite, and
-a full installation contains a very large number of files and libraries, leading
-to a massive Docker image.
+A: Yes, this is unfortunately normal. Vivado is a comprehensive tool suite
+with a very large number of files and libraries. The final size depends on
+the devices and tools selected in `config/install_config.txt` — keep the
+module selection minimal to keep the image manageable.
 
 **Q: My Docker build fails with errors related to X11 or display servers. What can I do?**
 
@@ -253,7 +255,7 @@ A: `launch_runs` spawns child processes which each independently load
 commands instead: `synth_design`, `opt_design`, `place_design`, `route_design`,
 `write_bitstream`.
 
-**Q: `` `docker load -i xilinx-vivado.docker.tgz` `` fails or takes many attempts. Any advice?**
+**Q: `` `docker load -i xilinx-vivado.2025.2.docker.tgz` `` fails or takes many attempts. Any advice?**
 
 A: Loading extremely large Docker image archives can be unreliable with some
 versions or configurations of Docker. Ensure you have sufficient disk space in
