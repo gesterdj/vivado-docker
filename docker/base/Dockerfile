@@ -11,8 +11,9 @@
 #     scripts/gen_auth_token.sh — passed as BuildKit secret, never
 #     stored in a layer.
 
-# hadolint ignore=DL3029
-FROM --platform=linux/amd64 ubuntu:22.04
+# Target platform (linux/amd64) is set by the Makefile's docker build
+# --platform flag; do not hardcode it here.
+FROM ubuntu:22.04
 
 ARG VIVADO_VERSION=2025.2
 ARG INSTALL_TARGET_DIR=/opt/Xilinx

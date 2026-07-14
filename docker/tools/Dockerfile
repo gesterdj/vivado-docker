@@ -7,8 +7,9 @@
 #   make build
 
 ARG VIVADO_VERSION=2025.2
-# hadolint ignore=DL3029
-FROM --platform=linux/amd64 xilinx-vivado-base:${VIVADO_VERSION}
+# Target platform (linux/amd64) is set by the Makefile's docker build
+# --platform flag; do not hardcode it here.
+FROM xilinx-vivado-base:${VIVADO_VERSION}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
