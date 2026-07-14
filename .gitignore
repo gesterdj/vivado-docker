@@ -3,3 +3,4 @@
 *.stamp
 *.bin
 base.image.ok
+.sessions/
