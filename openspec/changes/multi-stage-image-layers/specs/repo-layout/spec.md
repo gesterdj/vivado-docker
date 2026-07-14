@@ -18,8 +18,7 @@ remain at the repository root.
 #### Scenario: Installer configs location
 - **WHEN** the Docker base image is built
 - **THEN** installer configuration is read from
-  `config/xsetup_config_25.txt`, located alongside
-  `config/install_config.txt`
+  `config/xsetup_config_25.txt`
 
 #### Scenario: Per-image Dockerfile folders
 - **WHEN** a contributor looks for a Dockerfile

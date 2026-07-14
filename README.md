@@ -27,13 +27,14 @@ you download from AMD. Due to its size and licensing restrictions, the built
 Docker image is not available for download from Docker Hub or other public
 registries.
 
-The script builds a Docker container with a pre-configured installation of
-AMD's (formerly Xilinx) Vivado tools. Building the container is a
-time-consuming process (multiple hours), as is loading the image into Docker or
-saving it as an archive. Please allocate sufficient time.
+The build produces a base Docker image with a pre-configured installation
+of AMD's (formerly Xilinx) Vivado/Vitis tools, plus a thin tools overlay
+image for fast environment customization. The initial base build is a
+time-consuming process (multiple hours); overlay rebuilds take minutes.
 
-By default, the script installs a selection of features from the "Vivado ML
-Standard" edition, which is free to use for development.
+By default, the build installs a free-to-use selection of devices and
+tools from the Vitis Unified Software Platform, as configured in
+`config/xsetup_config_25.txt`.
 
 ## Why?
 
@@ -48,9 +49,9 @@ Vivado installation may be sufficient.
 
 | Folder     | Contents                                                    |
 |------------|-------------------------------------------------------------|
-| `scripts/` | Helper scripts (`run.vivado.sh` to run Vivado in Docker)    |
-| `config/`  | Installer configuration files (`install_config.txt`)        |
-| `docker/`  | `Dockerfile` and container build sources (`udev_stub.c`)    |
+| `scripts/` | Helper scripts (`run.vivado.sh`, `gen_auth_token.sh`)       |
+| `config/`  | Installer configuration (`xsetup_config_25.txt`)            |
+| `docker/`  | Container build sources; `base/` and `tools/` Dockerfiles   |
 | `docs/`    | Supplementary documentation                                 |
 
 `Makefile`, `README.md`, `AGENTS.md`, and `LICENSE` live at the root.
@@ -58,22 +59,23 @@ Vivado installation may be sufficient.
 ## Prerequisites
 
 *   Git
-*   Docker (with BuildKit enabled for faster builds)
-*   A downloaded Vivado Unified Installer archive (for which you hold a valid
-    license).
+*   Docker (with BuildKit enabled — required for bind mounts and secrets)
+*   The AMD FPGAs & Adaptive SoCs Web ("slim") Installer and a valid AMD
+    account (for which you hold a valid license).
 
 ## Limitations
 
 This solution for dockerizing Vivado has the following known limitations:
 
-*   **Supported Vivado Edition:** This project currently only supports
-    dockerizing the "Vivado ML Standard" edition. "Vivado ML Enterprise" (which
-    requires a paid license and may have different installation mechanisms) is
-    not supported. The repository https://github.com/esnet/xilinx-tools-docker seems
-    to do the same, but for Vivado ML Enterprise. I have not tested this.
-*   **Installer Availability:** You must download the Vivado installer archive
-    yourself directly from AMD. This repository cannot and will not provide the
-    installer due to licensing and distribution restrictions.
+*   **Supported Edition:** This project installs the Vitis Unified
+    Software Platform (which includes Vivado) via the AMD web installer,
+    selecting only free-to-use tools and devices in
+    `config/xsetup_config_25.txt`. Paid editions and their licensing
+    mechanisms are not supported.
+*   **Installer Availability:** You must download the AMD web installer
+    yourself directly from AMD and log in with your own AMD account. This
+    repository cannot and will not provide the installer due to licensing
+    and distribution restrictions.
 *   **Testing Constraints:** Thoroughly testing all possible configurations and
     Vivado versions is challenging due to the dependency on specific, large
     installer archives from AMD and the lengthy build times.
@@ -100,41 +102,51 @@ On native x86\_64 hosts, the Rosetta workarounds are harmless but unnecessary.
 
 ### Preparing for the Build
 
-1.  **Download Vivado Installer:** Obtain the Vivado Unified Installer archive
-    from AMD. You are responsible for complying with all software licensing
-    terms.
-2.  **Place Installer in Repo:** Copy the downloaded archive into the top-level
-    directory of this repository. For Vivado 2025.1, the archive name is
-    typically `FPGAs_AdaptiveSoCs_Unified_SDI_2025.1_0530_0145.tar`.
-3.  **Generate `install_config.txt`:**
-    *   Use the Xilinx setup program to generate the installation configuration
-        file: `` `xsetup -b SetupGen` ``.
-    *   During the generation process, select the "Vivado ML Standard" edition.
-    *   The setup program will create `install_config.txt` in
-        `$HOME/.Xilinx/`. Copy this file into the `config/` directory of
-        this repository.
-    *   Edit the `Modules=` section within `install_config.txt` to enable the
-        specific Vivado components you require. Change the `0` to a `1` for
-        each desired module (e.g., `Vivado Simulator:1`).
+The image is built in two stages: a **base image**
+(`xilinx-vivado-base:<version>`, contains the Vivado/Vitis installation,
+rebuilt rarely) and a **tools image** (`xilinx-vivado:<version>`, thin
+overlay with dev packages and stubs, rebuilds in minutes). Tool packages
+are downloaded by the AMD web installer during the base build — no ~50GB
+archive is copied around.
+
+1.  **Download the Slim (Web) Installer:** Obtain the AMD FPGAs &
+    Adaptive SoCs "Web Installer" `.bin` from AMD. You are responsible
+    for complying with all software licensing terms.
+2.  **Unpack the installer** into `./Xilinx/<version>/` at the repo root
+    (e.g., `./Xilinx/2025.2/xsetup` must exist). This tree is
+    bind-mounted into the build, never copied into a layer.
+3.  **Generate an auth token:**
+
+    ```bash
+    make auth-token INSTALLER=./FPGAs_AdaptiveSoCs_Unified_..._Web.bin
+    ```
+
+    This runs AMD's own `AuthTokenGen` (interactive login) and writes
+    `~/.Xilinx/wi_authentication_key`. The token is passed to the build
+    as a BuildKit secret — your credentials never enter the build, and
+    the token is never stored in an image layer. Tokens expire; re-run
+    this step if a build fails to authenticate. (This deviates from the
+    spec's build-arg credential approach on purpose: build args leak
+    into `docker history`.)
+4.  **Review `config/xsetup_config_25.txt`:** edit `Modules=` to select
+    the devices/tools to install.
 
 ### Building the Container
 
 Navigate to the repository's root directory and run:
 
 ```bash
-make HOST_TOOL_ARCHIVE_NAME=FPGAs_AdaptiveSoCs_Unified_SDI_2025.1_0530_0145.tar build
+make build-base   # slow: web install of Vivado/Vitis (rare)
+make build        # fast: tools overlay (after any customization change)
 ```
 
-The build process is lengthy. See the FAQ section for more details on build
+`make build` triggers the base build automatically when the base image
+or its stamp is missing (including after `docker rmi`). Customize the
+environment in `docker/tools/Dockerfile` — overlay rebuilds never re-run
+the installer.
+
+The base build is lengthy. See the FAQ section for more details on build
 times and optimizations.
-
-Approximate durations for key steps:
-
-*   Loading archive into build context: ~0 min (skipped due to bind mount)
-*   Copying archive into container: ~0 min (skipped due to bind mount)
-*   Unpacking archive: ~30 min
-*   Vivado installation: ~30 min
-*   Exporting Docker image layers: ~90 min
 
 ### Saving the Image
 
@@ -194,13 +206,13 @@ SRC_DIR=/path/to/fpga/project WORK_DIR=/path/to/output \
 
 **Q: Why does the Docker build take so long (several hours)?**
 
-A: The Vivado installer is very large, and the installation process itself is
-complex. Several steps contribute to the long duration: unpacking the archive,
-running the Vivado installer, and finally exporting the numerous
-layers of the resulting Docker image. (Note: Using Docker BuildKit with bind mounts,
-as done in this repository, significantly speeds up the process by skipping the
-need to load the multi-gigabyte archive into the build context and copy it into
-the container. This optimization was contributed by @gretel in PR #5). The overall process will still be lengthy.
+A: The Vivado installation is very large, and the process itself is complex.
+The base build downloads the selected tool packages via the AMD web
+installer, runs the installer, and finally exports the numerous layers of
+the resulting Docker image. The slim installer tree is bind-mounted (never
+copied into the build context), and once the base image exists,
+customization rebuilds (`make build`) take only minutes. The initial base
+build will still be lengthy.
 
 **Q: The Docker image is over 200GB. Is this normal?**
 
@@ -213,18 +225,16 @@ to a massive Docker image.
 A: This script builds Vivado in a headless environment (without a graphical
 display). Some Vivado installation options or components might require an X11
 display server during the installation itself. This script does not support such
-options. Ensure your `install_config.txt` only selects components compatible
-with a headless installation. The default "Vivado ML Standard" components are
-generally compatible.
+options. Ensure your `config/xsetup_config_25.txt` only selects components
+compatible with a headless installation.
 
 **Q: How do I choose which Vivado components are installed?**
 
-A: You can customize the installation by editing the `install_config.txt` file
-*before* starting the build. This file is generated by the Xilinx setup program
-(`` `xsetup -b SetupGen` ``). In the `Modules=` section of this file, you can enable
-or disable specific components by changing their value from `:0` (disabled) to
-`:1` (enabled). For example, to enable the Vivado Simulator, ensure the line
-reads `Vivado Simulator:1`.
+A: You can customize the installation by editing
+`config/xsetup_config_25.txt` *before* starting the base build. In the
+`Modules=` section, enable or disable devices/components by changing their
+value from `:0` (disabled) to `:1` (enabled). A template can be generated
+with `` `xsetup -b ConfigGen` `` from the slim installer.
 
 **Q: Vivado crashes with `realloc(): invalid pointer` on Apple Silicon.**
 

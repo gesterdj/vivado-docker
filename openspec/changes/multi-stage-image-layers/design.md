@@ -75,9 +75,10 @@ Constraints:
    token from the secret mount.
 
 5. **Config: use `config/xsetup_config_25.txt`** — copied to
-   `/tmp/xilinx/xsetup_config.txt` per spec. `config/install_config.txt`
-   is kept in the repo (still valid for the legacy archive flow users may
-   fork) but no longer referenced by the build.
+   `/tmp/xilinx/xsetup_config.txt` per spec. The legacy
+   `config/install_config.txt` is deleted — the new web-install flow
+   fully replaces the archive flow (user decision: "override existing
+   mentions with incoming specs"; the old flow remains in git history).
 
 6. **Tools overlay owns udev stub + dev packages** — `FROM
    xilinx-vivado-base:<v>`; compiles `/opt/udev_stub.so` (path unchanged
@@ -91,7 +92,11 @@ Constraints:
    `config/xsetup_config_25.txt`; requires the token file, hinting at
    `make auth-token` if missing); `build` → `build.stamp` (depends on
    `docker/tools/Dockerfile`, `docker/udev_stub.c`, `base.stamp`).
-   `HOST_TOOL_ARCHIVE_NAME` plumbing removed.
+   `HOST_TOOL_ARCHIVE_NAME` plumbing removed. Stamp targets SHALL also
+   verify the image actually exists (`docker image inspect
+   xilinx-vivado-base:<v>` for base, `xilinx-vivado:<v>` for the
+   overlay) and rebuild when it doesn't — stamps alone lie after
+   `docker rmi`.
 
 ## Risks / Trade-offs
 
@@ -127,5 +132,3 @@ Constraints:
 
 - Exact xsetup batch flags for the 2025.2 slim installer (spec is written
   against the observed 2025.2 behavior; first real build confirms).
-- Whether `install_config.txt` should be deleted outright once the web
-  flow is proven (default: keep, mark deprecated in README).

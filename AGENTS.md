@@ -27,7 +27,7 @@ sources in `docker/`, supplementary docs in `docs/`.
 
 ## Constraints
 
-- Vivado ML Standard only
+- Free-to-use Vitis Unified tool/device selection only (no paid editions)
 - Headless build environment
 - No public image hosting (size and licensing)
 - Installer must be downloaded from AMD separately

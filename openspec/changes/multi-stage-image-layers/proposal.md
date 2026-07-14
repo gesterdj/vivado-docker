@@ -30,7 +30,7 @@ copy entirely.
   passed to the build as a BuildKit secret — credentials never enter the
   build.
 - Use `config/xsetup_config_25.txt` (Vitis Unified config) as the base
-  install config; retire `config/install_config.txt` usage.
+  install config; delete the legacy `config/install_config.txt`.
 - Makefile: new `build-base` and `build` targets with proper dependency
   ordering; remove `HOST_TOOL_ARCHIVE_NAME` plumbing.
 - README/AGENTS: document the two-stage build flow and credentials
@@ -55,8 +55,8 @@ copy entirely.
 - `docker/Dockerfile` split/replaced; `docker/udev_stub.c` moves to the
   tools overlay context.
 - `Makefile`: target restructure; `build.stamp` semantics change.
-- `config/`: `xsetup_config_25.txt` becomes the active install config;
-  `install_config.txt` deprecated.
+- `config/`: `xsetup_config_25.txt` becomes the only install config;
+  `install_config.txt` removed.
 - `scripts/run.vivado.sh`: unchanged behavior, but image tag source
   changes (`xilinx-vivado:<version>` now built from the tools overlay).
 - Users must obtain AMD credentials and the slim installer instead of the
