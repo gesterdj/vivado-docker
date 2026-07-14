@@ -27,7 +27,7 @@ all:
 build: build.stamp
 .PHONY: build
 
-build.stamp: docker/Dockerfile Makefile install_config.txt
+build.stamp: docker/Dockerfile Makefile config/install_config.txt
 	@if [[ ${HOST_TOOL_ARCHIVE_NAME} == "" ]]; then \
 		 "Needs env HOST_TOOL_ARCHIVE_NAME"; \
 		exit 1; \
@@ -46,7 +46,7 @@ build.stamp: docker/Dockerfile Makefile install_config.txt
 		-f $< .
 	touch $@
 
-xilinx-vivado.${VIVADO_VERSION}.docker.tgz: docker/Dockerfile Makefile install_config.txt
+xilinx-vivado.${VIVADO_VERSION}.docker.tgz: docker/Dockerfile Makefile config/install_config.txt
 	docker save > xilinx-vivado.${VIVADO_VERSION}.docker.tgz
 
 save: xilinx-vivado.docker.${VIVADO_VERSION}.tgz
@@ -56,5 +56,5 @@ clean:
 	rm *.stamp
 
 run:
-	./run.vivado.sh
+	./scripts/run.vivado.sh
 

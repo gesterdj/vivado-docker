@@ -91,7 +91,7 @@ RUN gcc -shared -fPIC -o /opt/udev_stub.so /tmp/udev_stub.c \
 RUN mkdir -p $XILINX_INSTALL_LOCATION/tmp
 
 # Copy only the small config file (not the ~96 GB archive!)
-COPY install_config.txt /tmp/install_config.txt
+COPY config/install_config.txt /tmp/install_config.txt
 
 # Extract archive and install Vivado in a SINGLE layer using bind mount.
 # The archive is mounted read-only from the build context — never copied
@@ -116,9 +116,6 @@ RUN --mount=type=bind,source=${HOST_TOOL_ARCHIVE_NAME},target=/tmp/archive.tar \
     && mkdir -p /etc/udev/rules.d \
     && cd "${INSTALL_TARGET_DIR}/${VIVADO_VERSION}/Vivado/data/xicom/cable_drivers/lin64/install_script/install_drivers" \
     && ./install_drivers
-
-COPY run.sh /
-RUN chmod a+x /run.sh
 
 VOLUME /src
 VOLUME /work

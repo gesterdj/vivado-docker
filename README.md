@@ -5,6 +5,7 @@
 ## Table of Contents
 * [Summary](#summary)
 * [Why?](#why)
+* [Repository layout](#repository-layout)
 * [Prerequisites](#prerequisites)
 * [Limitations](#limitations)
 * [Apple Silicon / Rosetta Support](#apple-silicon--rosetta-support)
@@ -42,6 +43,17 @@ setup across different machines. If this is not a concern for you, a standard
 Vivado installation may be sufficient.
 
 [bzl]: https://www.hdlfactory.com/tags/bazel/
+
+## Repository layout
+
+| Folder     | Contents                                                    |
+|------------|-------------------------------------------------------------|
+| `scripts/` | Helper scripts (`run.vivado.sh` to run Vivado in Docker)    |
+| `config/`  | Installer configuration files (`install_config.txt`)        |
+| `docker/`  | `Dockerfile` and container build sources (`udev_stub.c`)    |
+| `docs/`    | Supplementary documentation                                 |
+
+`Makefile`, `README.md`, `AGENTS.md`, and `LICENSE` live at the root.
 
 ## Prerequisites
 
@@ -99,8 +111,8 @@ On native x86\_64 hosts, the Rosetta workarounds are harmless but unnecessary.
         file: `` `xsetup -b SetupGen` ``.
     *   During the generation process, select the "Vivado ML Standard" edition.
     *   The setup program will create `install_config.txt` in
-        `$HOME/.Xilinx/`. Copy this file into the root directory of this
-        repository.
+        `$HOME/.Xilinx/`. Copy this file into the `config/` directory of
+        this repository.
     *   Edit the `Modules=` section within `install_config.txt` to enable the
         specific Vivado components you require. Change the `0` to a `1` for
         each desired module (e.g., `Vivado Simulator:1`).
@@ -154,16 +166,17 @@ Once the image is loaded into Docker, start Vivado using:
 make run
 ```
 
-Or use `run.vivado.sh` directly with environment overrides:
+By default this starts the Vivado GUI (requires X11 passthrough on Linux).
+Or use `scripts/run.vivado.sh` directly with environment overrides:
 
 ```bash
 # Interactive TCL console
-VIVADO_CMD="vivado -mode tcl" ./run.vivado.sh
+VIVADO_CMD="vivado -mode tcl" ./scripts/run.vivado.sh
 
 # Batch synthesis
 SRC_DIR=/path/to/fpga/project WORK_DIR=/path/to/output \
   VIVADO_CMD="vivado -mode batch -source /src/build.tcl" \
-  ./run.vivado.sh
+  ./scripts/run.vivado.sh
 ```
 
 **`run.vivado.sh` environment variables:**
