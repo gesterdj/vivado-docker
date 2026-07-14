@@ -1,0 +1,131 @@
+## Context
+
+Today `docker/Dockerfile` is a single stage: apt packages, locale, udev
+stub, then a bind-mounted ~50GB tar is extracted and installed in one
+layer. Any Dockerfile edit after the install layer still requires the
+archive to be present, and edits before it invalidate the multi-hour
+install. `docs/fpgatools-docker-spec.md` §1 specifies an authenticated
+batch web install (`XILINX_EMAIL`/`XILINX_PASSWORD`, expect auth token,
+slim installer bind mount) and §2 shows the layering pattern (session
+image `FROM` base image). The user chose the web-install path ("the less
+copying, the better").
+
+Existing assets: `config/xsetup_config_25.txt` (Vitis Unified config,
+Zynq-7000 + Artix-7 modules), `docker/udev_stub.c`, Rosetta support in
+`scripts/run.vivado.sh` (expects `/opt/udev_stub.so` and image tag
+`xilinx-vivado:<version>`).
+
+Constraints:
+- Credentials must not persist in image layers, build cache metadata, or
+  shell history files.
+- Base rebuilds stay rare; overlay rebuilds must not touch the installer.
+- Full-build verification is impractical (hours, credentials); rely on
+  structural checks.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Two-image pipeline: `xilinx-vivado-base:<v>` (install) →
+  `xilinx-vivado:<v>` (tools overlay, tag unchanged for run scripts).
+- Overlay rebuild touches no installer bits: minutes, no credentials.
+- Web install per spec §1: no 50GB archive in the repo or build context.
+- Make targets encode the dependency (`build` uses base if present).
+
+**Non-Goals:**
+- No session container, tini, gosu, UID alignment, vcli, or JTAG broker
+  (spec §2–§7) — future changes can layer those on this base.
+- No change to `run.vivado.sh` CLI behavior.
+- No multi-version matrix support beyond the `VIVADO_VERSION` variable.
+
+## Decisions
+
+1. **Two Dockerfiles in subfolders, not one multi-stage file** —
+   `docker/base/Dockerfile` + `docker/tools/Dockerfile`. A single
+   multi-stage file would re-evaluate the base stage context on every
+   overlay build; separate files + a published local tag give a hard
+   cache boundary and let overlays rebuild with zero base context.
+   Alternative: `--target` multi-stage (rejected: cache invalidation
+   couples the stages; harder to keep the base "frozen").
+
+2. **Base = spec §1 scope only** — ubuntu:22.04, apt with
+   `Acquire::Retries=3` + `--no-install-recommends` (spec's minimal
+   package list, not the current maximal list), en_US.UTF-8 locale,
+   authenticated batch install, `VIVADO_PATH`/`VITIS_PATH` on PATH,
+   `WORKDIR /workspace`, `CMD ["vivado","-mode","batch"]`. Nothing else —
+   every extra byte in base is a byte users can't iterate on cheaply.
+
+3. **Auth via pre-generated host token, not credentials in the build** —
+   the operator generates `~/.Xilinx/wi_authentication_key` once on the
+   host; the build mounts it with
+   `RUN --mount=type=secret,id=xilinx_token,target=/root/.Xilinx/wi_authentication_key`.
+   A helper script `scripts/gen_auth_token.sh` wraps this step: it
+   locates/accepts the downloaded slim installer binary and runs
+   `<installer>.bin -- -b AuthTokenGen` (interactive email/password
+   prompt from AMD's own tool), then confirms the token file exists.
+   Deviation from spec §1 (build-arg credentials + expect script) is
+   deliberate: no credentials or expect dependency in the build, nothing
+   leaks into `docker history`. Alternatives rejected: `--build-arg`
+   credentials (leak into image metadata); expect/pexpect-driven login
+   inside the build (extra dependency, credentials still enter the build
+   environment).
+
+4. **Slim installer via bind mount** — pre-unpacked `./Xilinx/<version>`
+   directory bind-mounted read-only at `/opt/xilinx_installer` (spec §1),
+   never copied. xsetup downloads selected modules during build using the
+   token from the secret mount.
+
+5. **Config: use `config/xsetup_config_25.txt`** — copied to
+   `/tmp/xilinx/xsetup_config.txt` per spec. `config/install_config.txt`
+   is kept in the repo (still valid for the legacy archive flow users may
+   fork) but no longer referenced by the build.
+
+6. **Tools overlay owns udev stub + dev packages** — `FROM
+   xilinx-vivado-base:<v>`; compiles `/opt/udev_stub.so` (path unchanged
+   so `run.vivado.sh` keeps working), installs the developer package set
+   currently in the single-stage Dockerfile, declares `VOLUME /src`,
+   `VOLUME /work`, `WORKDIR /work`. Final tag `xilinx-vivado:<version>`
+   so `scripts/run.vivado.sh` needs no changes.
+
+7. **Makefile**: `auth-token` → runs `scripts/gen_auth_token.sh`;
+   `build-base` → `base.stamp` (depends on `docker/base/Dockerfile`,
+   `config/xsetup_config_25.txt`; requires the token file, hinting at
+   `make auth-token` if missing); `build` → `build.stamp` (depends on
+   `docker/tools/Dockerfile`, `docker/udev_stub.c`, `base.stamp`).
+   `HOST_TOOL_ARCHIVE_NAME` plumbing removed.
+
+## Risks / Trade-offs
+
+- [Web installer downloads ~tens of GB during base build; flaky network
+  fails the layer] → single RUN keeps it atomic; apt retries per spec;
+  rerun resumes from cache of earlier layers only. Acceptable because
+  base builds are rare.
+- [AMD may change auth-token flow/installer UX between versions] →
+  token generation isolated in `scripts/gen_auth_token.sh`;
+  version-parameterized paths. Tokens expire — the script re-runs in
+  seconds when a build fails on a stale token.
+- [Cannot fully verify without credentials + hours] → verify structure:
+  `docker build --check`/hadolint-style review, Makefile dry runs,
+  grep for old references; document that first real build validates.
+- [Spec deviation: host token secret vs build-arg credentials + expect] →
+  recorded here and in README; strictly safer.
+- [Base uses minimal package set; some tools users relied on move to
+  overlay] → intentional; overlay installs them cheaply.
+
+## Migration Plan
+
+1. Add `scripts/gen_auth_token.sh`, `docker/base/Dockerfile`, and
+   `docker/tools/` (Dockerfile, referencing existing
+   `docker/udev_stub.c`).
+2. Rewrite Makefile targets; keep `make run` unchanged.
+3. Remove old `docker/Dockerfile` in the same commit.
+4. Update README (two-stage flow, credentials via env/secrets, slim
+   installer prep) and AGENTS constraints if needed.
+5. Rollback = revert commit; old archive flow is preserved in git
+   history.
+
+## Open Questions
+
+- Exact xsetup batch flags for the 2025.2 slim installer (spec is written
+  against the observed 2025.2 behavior; first real build confirms).
+- Whether `install_config.txt` should be deleted outright once the web
+  flow is proven (default: keep, mark deprecated in README).
