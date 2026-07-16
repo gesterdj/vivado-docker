@@ -12,9 +12,10 @@ TOOLS_IMAGE := xilinx-vivado:$(VIVADO_VERSION)
 # base build as a BuildKit secret (never stored in an image layer).
 AUTH_TOKEN_FILE := $(HOME)/.Xilinx/wi_authentication_key
 
-# Slim (web) installer .bin at the repo root; auto-detected, or pass
-# INSTALLER=<path> explicitly (must be inside the build context).
-INSTALLER ?= $(firstword $(wildcard *.bin))
+# Slim (web) installer .bin in installer/ (repo root as fallback);
+# auto-detected, or pass INSTALLER=<path> explicitly (must be inside
+# the build context).
+INSTALLER ?= $(firstword $(wildcard installer/*.bin) $(wildcard *.bin))
 
 SHELL := /bin/bash
 

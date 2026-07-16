@@ -6,7 +6,7 @@
 # Build (from repo root):
 #   make build-base INSTALLER=<slim-installer.bin>
 # Requires:
-#   - the AMD slim (web) installer .bin at the repo root
+#   - the AMD slim (web) installer .bin in installer/
 #   - host auth token (~/.Xilinx/wi_authentication_key), see
 #     scripts/gen_auth_token.sh — passed as BuildKit secret, never
 #     stored in a layer.

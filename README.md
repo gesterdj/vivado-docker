@@ -95,13 +95,13 @@ are downloaded by the AMD web installer during the base build — no ~50GB
 archive is copied around.
 
 1.  **Download the Slim (Web) Installer:** Obtain the AMD FPGAs &
-    Adaptive SoCs "Web Installer" `.bin` from AMD and place it at the
-    repo root. You are responsible for complying with all software
-    licensing terms.
+    Adaptive SoCs "Web Installer" `.bin` from AMD and place it in the
+    `installer/` directory. You are responsible for complying with all
+    software licensing terms.
 2.  **Generate an auth token:**
 
     ```bash
-    make auth-token   # auto-detects the *.bin at the repo root
+    make auth-token   # auto-detects the *.bin in installer/
     ```
 
     This runs AMD's own `AuthTokenGen` (interactive login) and writes
