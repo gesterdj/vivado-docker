@@ -7,7 +7,7 @@
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::artifacts::*;
 use crate::protocol::{read_frame, write_frame, Request, Response, MAX_FRAME};
@@ -64,9 +64,16 @@ fn connect(paths: &SessionPaths) -> std::io::Result<UnixStream> {
     UnixStream::connect(paths.socket())
 }
 
-/// Effective session state combining metadata with procfs liveness:
-/// a live-looking metadata whose supervisor is gone is `unreachable`
-/// (crashed if the state claims activity). Read-only: never rewrites.
+/// Effective session state combining metadata with liveness evidence:
+/// a live-looking metadata whose daemon shows no sign of life is
+/// `unreachable`. Read-only: never rewrites artifacts.
+///
+/// Liveness must work across PID namespaces (host, session container,
+/// sidecars all read the same .dv/). Two signals, either suffices:
+/// - the supervisor PID exists here AND its comm is `dv` (same
+///   namespace; the comm check rejects PID collisions), or
+/// - the health.json heartbeat (rewritten every ~10 s from readiness
+///   onward) is fresh.
 pub fn effective_state(paths: &SessionPaths) -> (Option<Metadata>, SessionState) {
     let meta: Option<Metadata> = read_json(&paths.metadata()).ok();
     let Some(m) = &meta else {
@@ -75,17 +82,35 @@ pub fn effective_state(paths: &SessionPaths) -> (Option<Metadata>, SessionState)
     match m.state {
         SessionState::Stopped | SessionState::Crashed => (meta.clone(), m.state),
         st => {
-            let alive = m
-                .supervisor_pid
-                .map(|p| unsafe { libc::kill(p, 0) } == 0)
-                .unwrap_or(false);
-            if alive {
+            let pid_alive = m.supervisor_pid.map(daemon_pid_alive).unwrap_or(false);
+            if pid_alive || heartbeat_fresh(paths) {
                 (meta.clone(), st)
             } else {
                 (meta.clone(), SessionState::Unreachable)
             }
         }
     }
+}
+
+/// PID exists in this namespace and really is a dv daemon.
+fn daemon_pid_alive(pid: i32) -> bool {
+    if unsafe { libc::kill(pid, 0) } != 0 {
+        return false;
+    }
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|c| c.trim() == "dv")
+        .unwrap_or(false)
+}
+
+/// Heartbeat is fresh when health.json's mtime is within three sampler
+/// periods (sampler writes every ~10 s).
+fn heartbeat_fresh(paths: &SessionPaths) -> bool {
+    std::fs::metadata(paths.health())
+        .and_then(|md| md.modified())
+        .ok()
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .map(|age| age.as_secs() < 30)
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------- exec
