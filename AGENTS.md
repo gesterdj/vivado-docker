@@ -14,7 +14,8 @@ instructions — read it before making changes.
 
 See [README → Repository layout](README.md#repository-layout).
 Scripts go in `scripts/`, installer configs in `config/`, container build
-sources in `docker/`, supplementary docs in `docs/`.
+sources in `docker/`, the daVit session CLI crate in `davit/`,
+supplementary docs in `docs/`.
 
 ## Instructions
 
@@ -22,8 +23,8 @@ sources in `docker/`, supplementary docs in `docs/`.
 - Run (GUI/batch): [README → Running Vivado from the
   Image](README.md#running-vivado-from-the-image)
 - Environment variables: see the `run.vivado.sh` table in the same section
-- Apple Silicon: [README → Apple Silicon / Rosetta
-  Support](README.md#apple-silicon--rosetta-support)
+- Persistent sessions / CLI: [README → daVit: Persistent Session
+  CLI](README.md#davit-persistent-session-cli)
 
 ## Constraints
 

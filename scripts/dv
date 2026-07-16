@@ -1,0 +1,250 @@
+#!/bin/bash
+# daVit host launcher — the only part of the CLI that needs a container
+# runtime. Owns exactly two responsibilities:
+#
+#   dv start [headless|gui] [options]   create the session container
+#   dv stop --force                     runtime escalation (SIGTERM/kill)
+#
+# Every other verb is delegated verbatim to the self-published binary at
+# <workspace>/.dv/bin/dv, so sidecars and scripts work with no runtime
+# access and no dependencies beyond the shared workspace.
+#
+# Environment variables:
+#   VIVADO_VERSION  image tag (default: 2025.2)
+#   DV_WORKSPACE    workspace directory (default: current directory)
+#   DV_IMAGE        full image override (default: xilinx-vivado:$VIVADO_VERSION)
+#   DV_JTAG_HOST    default --jtag-host value (default: host.docker.internal:3121)
+set -euo pipefail
+
+VIVADO_VERSION="${VIVADO_VERSION:-2025.2}"
+IMAGE="${DV_IMAGE:-xilinx-vivado:${VIVADO_VERSION}}"
+WORKSPACE="$(cd "${DV_WORKSPACE:-$PWD}" && pwd)"
+SESSION_DIR="${WORKSPACE}/.dv"
+# Deterministic per-workspace container name; the label guards against
+# adopting an unrelated container that happens to share the name.
+WS_HASH="$(printf '%s' "${WORKSPACE}" | cksum | cut -d' ' -f1)"
+CONTAINER="davit-${WS_HASH}"
+LABEL="davit.workspace=${WORKSPACE}"
+
+die()  { echo "dv: $*" >&2; exit 1; }
+usage() { echo "dv: $*" >&2; exit 2; }
+
+runtime() {
+    command -v docker >/dev/null 2>&1 || die "docker not found; \
+runtime verbs need a container runtime on this host"
+    docker "$@"
+}
+
+container_state() {
+    docker inspect --format \
+        '{{.State.Status}} {{index .Config.Labels "davit.workspace"}}' \
+        "${CONTAINER}" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------
+# JTAG: resolve --jtag-host per spec order (inline, env/config, default),
+# probe reachability (warn only), export VIVADO_HW_SERVER_URL.
+resolve_jtag() {
+    local inline="$1"
+    if [[ -n "${inline}" ]]; then
+        JTAG_URL="${inline}"
+    elif [[ -n "${DV_JTAG_HOST:-}" ]]; then
+        JTAG_URL="${DV_JTAG_HOST}"
+    else
+        JTAG_URL="host.docker.internal:3121"
+    fi
+    local host="${JTAG_URL%%:*}" port="${JTAG_URL##*:}"
+    local probe_host="${host}"
+    [[ "${host}" == "host.docker.internal" ]] && probe_host="localhost"
+    if ! (exec 3<>"/dev/tcp/${probe_host}/${port}") 2>/dev/null; then
+        echo "dv: warning: no hw_server reachable at ${probe_host}:${port};" \
+             "start one on the host with 'hw_server -d'" >&2
+    fi
+    exec 3<&- 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------
+# GUI profile detection: wsl > wayland > x11.
+detect_gui_profile() {
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        echo wsl
+    elif [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        echo wayland
+    else
+        echo x11
+    fi
+}
+
+gui_mount_args() {
+    local profile="$1"
+    GUI_ARGS=(-e _JAVA_AWT_WM_NONREPARENTING=1)
+    case "${profile}" in
+        x11|wsl)
+            [[ -n "${DISPLAY:-}" ]] || die "DISPLAY is not set (profile: ${profile})"
+            GUI_ARGS+=(-e DISPLAY="${DISPLAY}")
+            [[ -d /tmp/.X11-unix ]] && GUI_ARGS+=(-v /tmp/.X11-unix:/tmp/.X11-unix:ro)
+            [[ -n "${XAUTHORITY:-}" && -f "${XAUTHORITY}" ]] \
+                && GUI_ARGS+=(-v "${XAUTHORITY}:/tmp/.Xauthority:ro" -e XAUTHORITY=/tmp/.Xauthority)
+            ;;
+        wayland)
+            [[ -n "${WAYLAND_DISPLAY:-}" ]] || die "WAYLAND_DISPLAY is not set"
+            local wl_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+            [[ -S "${wl_dir}/${WAYLAND_DISPLAY}" ]] || die "wayland socket not found at ${wl_dir}/${WAYLAND_DISPLAY}"
+            GUI_ARGS+=(
+                -v "${wl_dir}/${WAYLAND_DISPLAY}:/tmp/wayland-0:ro"
+                -e WAYLAND_DISPLAY=/tmp/wayland-0
+                -e GDK_BACKEND=wayland -e QT_QPA_PLATFORM=wayland
+            )
+            # Vivado is X11-based; keep DISPLAY for XWayland fallback.
+            [[ -n "${DISPLAY:-}" ]] && GUI_ARGS+=(-e DISPLAY="${DISPLAY}")
+            [[ -d /tmp/.X11-unix ]] && GUI_ARGS+=(-v /tmp/.X11-unix:/tmp/.X11-unix:ro)
+            ;;
+        *) usage "unknown --gui-profile '${profile}' (expected: x11, wayland, wsl)" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------
+cmd_start() {
+    local mode=headless project="" gui_profile="" jtag=0 jtag_inline=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            headless|gui) mode="$1" ;;
+            --project) shift; [[ $# -gt 0 ]] || usage "--project requires a value"; project="$1" ;;
+            --project=*) project="${1#*=}" ;;
+            --gui-profile) shift; [[ $# -gt 0 ]] || usage "--gui-profile requires a value"; gui_profile="$1" ;;
+            --gui-profile=*) gui_profile="${1#*=}" ;;
+            --jtag-host=*) jtag=1; jtag_inline="${1#*=}" ;;
+            --jtag-host)
+                # Two-token form is ambiguous with the mode word; reject.
+                if [[ $# -gt 1 && "$2" != -* && "$2" != headless && "$2" != gui ]]; then
+                    usage "--jtag-host takes its value with '=': --jtag-host=HOST:PORT"
+                fi
+                jtag=1 ;;
+            -h|--help)
+                cat <<'EOF'
+usage: dv start [headless|gui] [--project FILE.xpr] [--gui-profile x11|wayland|wsl] [--jtag-host[=HOST:PORT]]
+EOF
+                return 0 ;;
+            *) usage "start: unknown option '$1'" ;;
+        esac
+        shift
+    done
+
+    [[ -d "${WORKSPACE}" && -w "${WORKSPACE}" ]] || die "workspace ${WORKSPACE} is not a writable directory"
+    if [[ -n "${project}" ]]; then
+        [[ "${project}" == *.xpr ]] || die "--project must be a .xpr file (got: ${project})"
+        [[ -f "${WORKSPACE}/${project}" ]] || die "project not found: ${WORKSPACE}/${project}"
+    fi
+
+    # GUI implies --jtag-host.
+    [[ "${mode}" == gui ]] && jtag=1
+
+    local state; state="$(container_state)"
+    if [[ -n "${state}" ]]; then
+        local status ws
+        status="${state%% *}"; ws="${state#* }"
+        [[ "${ws}" == "${WORKSPACE}" ]] \
+            || die "container ${CONTAINER} exists but belongs to a different workspace (${ws}); refusing to adopt it"
+        if [[ "${status}" == running ]]; then
+            echo "dv: session already running for ${WORKSPACE}"
+            [[ -x "${SESSION_DIR}/bin/dv" ]] && exec "${SESSION_DIR}/bin/dv" show status
+            return 0
+        fi
+        # Stale stopped container from a previous session of this workspace.
+        runtime rm -f "${CONTAINER}" >/dev/null
+    fi
+
+    local env_args=()
+    if [[ "${jtag}" -eq 1 ]]; then
+        resolve_jtag "${jtag_inline}"
+        env_args+=(-e VIVADO_HW_SERVER_URL="${JTAG_URL}")
+    fi
+
+    if [[ "${mode}" == gui ]]; then
+        gui_mount_args "${gui_profile:-$(detect_gui_profile)}"
+        exec docker run --rm --init \
+            --platform linux/amd64 \
+            --name "${CONTAINER}" --label "${LABEL}" \
+            -u "$(id -u):$(id -g)" \
+            -v "${WORKSPACE}:/workspace:rw" \
+            -w /workspace \
+            -e HOME=/workspace \
+            -e XILINX_LOCAL_USER_DATA=no \
+            "${env_args[@]}" "${GUI_ARGS[@]}" \
+            "${IMAGE}" gui
+    fi
+
+    local daemon_args=(session)
+    [[ -n "${project}" ]] && daemon_args+=(--project "${project}")
+    runtime run -d --init \
+        --platform linux/amd64 \
+        --name "${CONTAINER}" --label "${LABEL}" \
+        -u "$(id -u):$(id -g)" \
+        -v "${WORKSPACE}:/workspace:rw" \
+        -w /workspace \
+        -e HOME=/workspace \
+        -e XILINX_LOCAL_USER_DATA=no \
+        "${env_args[@]}" \
+        "${IMAGE}" "${daemon_args[@]}" >/dev/null
+
+    echo "dv: waiting for session readiness (Vivado startup can take minutes)..."
+    local deadline=$(( $(date +%s) + ${DV_STARTUP_TIMEOUT:-600} ))
+    while :; do
+        if [[ -x "${SESSION_DIR}/bin/dv" ]] && "${SESSION_DIR}/bin/dv" _healthcheck >/dev/null 2>&1; then
+            exec "${SESSION_DIR}/bin/dv" show status
+        fi
+        if ! docker inspect --format '{{.State.Running}}' "${CONTAINER}" 2>/dev/null | grep -q true; then
+            echo "dv: session container exited during startup; last log lines:" >&2
+            docker logs --tail 20 "${CONTAINER}" >&2 2>&1 || true
+            exit 1
+        fi
+        [[ "$(date +%s)" -lt "${deadline}" ]] || die "session not ready after ${DV_STARTUP_TIMEOUT:-600}s; inspect with: docker logs ${CONTAINER}"
+        sleep 2
+    done
+}
+
+cmd_stop_force() {
+    local state; state="$(container_state)"
+    [[ -n "${state}" ]] || die "no managed session container (${CONTAINER}) found"
+    echo "dv: forcing session container down (in-flight results may be lost)" >&2
+    runtime stop -t 15 "${CONTAINER}" >/dev/null || runtime kill "${CONTAINER}" >/dev/null
+    runtime rm -f "${CONTAINER}" >/dev/null 2>&1 || true
+    echo "dv: session container removed"
+}
+
+# ---------------------------------------------------------------------
+main() {
+    [[ $# -gt 0 ]] || { set -- --help; }
+    case "$1" in
+        start) shift; cmd_start "$@" ;;
+        stop)
+            if [[ " ${*:2} " == *" --force "* ]]; then
+                cmd_stop_force
+            else
+                [[ -x "${SESSION_DIR}/bin/dv" ]] \
+                    || usage "no session found in ${WORKSPACE} (no .dv/bin/dv); run 'dv start' first"
+                exec "${SESSION_DIR}/bin/dv" "$@"
+            fi ;;
+        -h|--help|help)
+            if [[ -x "${SESSION_DIR}/bin/dv" ]]; then
+                exec "${SESSION_DIR}/bin/dv" --help
+            fi
+            cat <<'EOF'
+dv — daVit host launcher
+
+usage: dv start [headless|gui] [options]   create the session container
+       dv stop [--force]                   stop the session
+       dv <verb> ...                       delegated to <ws>/.dv/bin/dv
+                                           (exec, show, logs, diagnose, run)
+
+No session exists yet in this workspace; run 'dv start' first.
+EOF
+            ;;
+        *)
+            [[ -x "${SESSION_DIR}/bin/dv" ]] \
+                || usage "no session found in ${WORKSPACE} (no .dv/bin/dv); run 'dv start' first"
+            exec "${SESSION_DIR}/bin/dv" "$@" ;;
+    esac
+}
+
+main "$@"

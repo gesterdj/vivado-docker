@@ -8,8 +8,8 @@
 * [Repository layout](#repository-layout)
 * [Prerequisites](#prerequisites)
 * [Limitations](#limitations)
-* [Apple Silicon / Rosetta Support](#apple-silicon--rosetta-support)
 * [Maintenance](#maintenance)
+* [daVit: Persistent Session CLI](#davit-persistent-session-cli)
 * [Troubleshooting/FAQ](#troubleshootingfaq)
 * [Contribution](#contribution)
 * [Prior art](#prior-art)
@@ -49,9 +49,10 @@ Vivado installation may be sufficient.
 
 | Folder     | Contents                                                    |
 |------------|-------------------------------------------------------------|
-| `scripts/` | Helper scripts (`run.vivado.sh`, `gen_auth_token.sh`)       |
+| `scripts/` | Helper scripts (`dv`, `run.vivado.sh`, `gen_auth_token.sh`) |
 | `config/`  | Installer configuration (`install_config.txt`)             |
 | `docker/`  | Container build sources; `base/` and `tools/` Dockerfiles   |
+| `davit/`   | daVit session daemon + `dv` CLI (Rust crate, static binary) |
 | `docs/`    | Supplementary documentation                                 |
 
 `Makefile`, `README.md`, `AGENTS.md`, and `LICENSE` live at the root.
@@ -79,24 +80,8 @@ This solution for dockerizing Vivado has the following known limitations:
 *   **Testing Constraints:** Thoroughly testing all possible configurations and
     Vivado versions is challenging due to the multi-hour installer downloads
     and build times.
-
-## Apple Silicon / Rosetta Support
-
-This setup works on Apple Silicon Macs (M1/M2/M3/M4) via Rosetta x86\_64
-emulation in Docker (OrbStack or Docker Desktop). Key adaptations:
-
-*   **`--platform linux/amd64`** is added to all Docker commands (build & run)
-*   **libudev stub**: Vivado's license manager and WebTalk telemetry call
-    `udev_enumerate_scan_devices()` which crashes under Rosetta with
-    `realloc(): invalid pointer`. A stub shared library at `/opt/udev_stub.so`
-    is built into the image and loaded via `LD_PRELOAD` automatically when
-    running on ARM64 hosts.
-*   **`launch_runs` may crash** under Rosetta because it spawns child processes
-    that also trigger the libudev crash. For synthesis, prefer in-process
-    commands (`synth_design`, `place_design`, `route_design`) over `launch_runs`
-    in your TCL scripts.
-
-On native x86\_64 hosts, the Rosetta workarounds are harmless but unnecessary.
+*   **Linux x86\_64 hosts only.** The image and helper scripts target
+    native `linux/amd64` Docker hosts.
 
 ## Maintenance
 
@@ -198,8 +183,119 @@ SRC_DIR=/path/to/fpga/project WORK_DIR=/path/to/output \
 | `SRC_DIR` | current directory | Host directory mounted at `/src` |
 | `WORK_DIR` | current directory | Host directory mounted at `/work` |
 | `VIVADO_CMD` | `vivado` (GUI) | Command to run inside container |
-| `ROSETTA` | auto-detect | Set to `1` to force libudev stub |
 | `USB_DEVICE_DIR` | None | Set to Host USB dir in order to enable USB |
+
+## daVit: Persistent Session CLI
+
+`run.vivado.sh` starts a fresh Vivado for every invocation. **daVit**
+(binary: `dv`) instead keeps one warm Vivado TCL session alive in a
+container and lets you fire commands at it — from the host, from
+scripts, or from sibling containers sharing the workspace. Vivado's
+multi-minute startup cost is paid once per session, not once per
+command.
+
+### Quick start
+
+```bash
+cd /path/to/project           # contains myproj.xpr
+/path/to/vivado-docker/scripts/dv start --project myproj.xpr
+dv() { ./.dv/bin/dv "$@"; }   # or keep using scripts/dv
+
+dv exec 'get_projects'
+dv exec -- report_utilization -file util.rpt
+dv show status
+dv stop
+```
+
+`start` creates the container (`docker run --init -u UID:GID` with the
+project directory mounted at `/workspace`) and waits for readiness.
+Everything else talks to the running session through the session root.
+
+### Session root: `.dv/`
+
+The daemon creates `<workspace>/.dv/` containing the control socket
+(`control.sock`, owner-only), session artifacts (`metadata.json`,
+`result.json`, `health.json`), timestamped raw session logs, and a
+self-published copy of the CLI at `.dv/bin/dv`. Any process that can
+see the workspace — including sibling containers with zero
+preinstalled dependencies — gets the full client by running
+`.dv/bin/dv`. Add `.dv/` to your project's `.gitignore`; it is
+per-session machine state.
+
+### Verbs
+
+| Verb | Purpose |
+|------|---------|
+| `dv start [headless\|gui]` | Create the session container (host only) |
+| `dv exec [--timeout S] [--file F] [--] TCL...` | Run one TCL operation |
+| `dv show status\|result\|metadata\|health [--json]` | Session state from artifacts |
+| `dv logs [--tail N] [--follow]` | Raw session log (file read only) |
+| `dv diagnose last\|health\|inspect\|ps\|wchan\|...` | Read-only probes, never touches the session |
+| `dv run xsct\|xsdb\|bootgen\|dtc ARGS...` | Managed companion-tool operation |
+| `dv stop [--force]` | Graceful stop; `--force` needs the host launcher |
+
+Exit codes: `0` success, `1` Vivado error/busy/crash, `2` usage or no
+result, `3` client wait timed out (the command keeps running — retrieve
+it later with `dv show result`). One command runs at a time; concurrent
+`exec` calls are rejected immediately with `busy`, never queued.
+
+INFO and WARNING lines are filtered from `exec` output by default
+(ERROR/CRITICAL WARNING always surface; everything lands unfiltered in
+the raw log). To retain specific warnings, list message IDs in
+`<workspace>/elfws.yaml`:
+
+```yaml
+# warning IDs to suppress; all others are retained
+- Synth 8-7080
+- Vivado 12-1
+```
+
+### Sidecar usage (compose)
+
+The session container works as a sidecar: siblings share the workspace
+volume and gate on session readiness via the image `HEALTHCHECK`:
+
+```yaml
+services:
+  vivado:
+    image: xilinx-vivado:2025.2
+    init: true
+    user: "1000:1000"
+    command: ["session", "--project", "myproj.xpr"]
+    volumes: [ "./:/workspace" ]
+
+  builder:
+    image: your-build-image
+    depends_on:
+      vivado:
+        condition: service_healthy
+    volumes: [ "./:/workspace" ]
+    command: ["/workspace/.dv/bin/dv", "exec", "--file", "build.tcl"]
+```
+
+Sibling containers can `exec`, `show`, `logs`, `diagnose`, `run`, and
+gracefully `stop` the session; container lifecycle (`start`,
+`stop --force`) belongs to the orchestrator.
+
+### GUI mode
+
+`dv start gui` runs `vivado -mode gui` as the container's foreground
+application — no daemon, socket, or session artifacts. Display
+plumbing is auto-detected (`wsl`, `wayland`, `x11`) and can be forced
+with `--gui-profile`. Hardware access goes through a host `hw_server`:
+`--jtag-host[=HOST:PORT]` (default `host.docker.internal:3121`, implied
+in GUI mode) exports `VIVADO_HW_SERVER_URL`; in Vivado connect with
+`open_hw_target -host ...`.
+
+### Launcher environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VIVADO_VERSION` | `2025.2` | Image tag to run |
+| `DV_IMAGE` | `xilinx-vivado:$VIVADO_VERSION` | Full image override |
+| `DV_WORKSPACE` | current directory | Workspace directory |
+| `DV_JTAG_HOST` | `host.docker.internal:3121` | Default `--jtag-host` value |
+| `DV_STARTUP_TIMEOUT` | `600` | Readiness wait in seconds |
 
 ## Troubleshooting/FAQ
 
@@ -237,23 +333,23 @@ A: You can customize the installation by editing
 value from `:0` (disabled) to `:1` (enabled). A template can be generated
 with `` `xsetup -b ConfigGen` `` from the slim installer.
 
-**Q: Vivado crashes with `realloc(): invalid pointer` on Apple Silicon.**
+**Q: Vivado crashes with `realloc(): invalid pointer` at startup.**
 
-A: This is a known issue with Rosetta x86\_64 emulation. Vivado's license
-manager calls `udev_enumerate_scan_devices()` which triggers a crash in glibc's
-allocator under Rosetta. The image includes a libudev stub at
-`/opt/udev_stub.so` that provides no-op implementations. `run.vivado.sh`
-applies this automatically on ARM64 hosts. If running Vivado manually inside
-the container, add: `export LD_PRELOAD=/opt/udev_stub.so` before sourcing
-`settings64.sh`.
+A: Vivado's license manager and WebTalk call
+`udev_enumerate_scan_devices()`, which can misbehave inside containers
+that have no udev daemon or device database. The image includes a
+libudev stub at `/opt/udev_stub.so` that provides no-op
+implementations. `run.vivado.sh` and the daVit entrypoint apply it
+automatically, scoped to the Vivado process tree. If running Vivado
+manually inside the container, add: `export
+LD_PRELOAD=/opt/udev_stub.so` before sourcing `settings64.sh`.
 
 **Q: `launch_runs` crashes but `synth_design` works. Why?**
 
 A: `launch_runs` spawns child processes which each independently load
-`libudev`. Under Rosetta, these children crash even with `LD_PRELOAD` set
-(the preload may not propagate correctly to all children). Use in-process TCL
-commands instead: `synth_design`, `opt_design`, `place_design`, `route_design`,
-`write_bitstream`.
+`libudev`, and the preload may not propagate correctly to all children.
+Use in-process TCL commands instead: `synth_design`, `opt_design`,
+`place_design`, `route_design`, `write_bitstream`.
 
 **Q: `` `docker load -i xilinx-vivado.2025.2.docker.tgz` `` fails or takes many attempts. Any advice?**
 

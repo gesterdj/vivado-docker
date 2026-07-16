@@ -62,7 +62,9 @@ base.stamp: docker/base/Dockerfile config/install_config.txt
 build: build.stamp
 .PHONY: build
 
-build.stamp: docker/tools/Dockerfile docker/udev_stub.c base.image.ok
+build.stamp: docker/tools/Dockerfile docker/tools/entrypoint.sh \
+		docker/udev_stub.c davit/Cargo.toml davit/Cargo.lock \
+		$(wildcard davit/src/*.rs) base.image.ok
 	env DOCKER_BUILDKIT=1 docker build \
 		--platform linux/amd64 \
 		-t $(TOOLS_IMAGE) \
