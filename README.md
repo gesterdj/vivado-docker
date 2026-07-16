@@ -49,7 +49,7 @@ Vivado installation may be sufficient.
 
 | Folder     | Contents                                                    |
 |------------|-------------------------------------------------------------|
-| `scripts/` | Helper scripts (`dv`, `run.vivado.sh`, `gen_auth_token.sh`) |
+| `scripts/` | Helper scripts (`dv`, `run.vivado.sh`, `build.*.sh`, `gen_auth_token.sh`) |
 | `config/`  | Installer configuration (`install_config.txt`)             |
 | `docker/`  | Container build sources; `base/` and `tools/` Dockerfiles   |
 | `davit/`   | daVit session daemon + `dv` CLI (Rust crate, static binary) |
@@ -127,6 +127,12 @@ make build        # fast: tools overlay (after any customization change)
 or its stamp is missing (including after `docker rmi`). Customize the
 environment in `docker/tools/Dockerfile` — overlay rebuilds never re-run
 the installer.
+
+The actual `docker build` invocations live in `scripts/build.base.sh`
+and `scripts/build.tools.sh`; `make` adds stamp-based caching on top.
+Both scripts honor `VIVADO_VERSION`, and the base script additionally
+honors `INSTALLER` and `AUTH_TOKEN_FILE`. Call them directly to force
+a rebuild without touching the stamps.
 
 The base build is lengthy. See the FAQ section for more details on build
 times and optimizations.

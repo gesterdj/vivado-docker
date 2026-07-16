@@ -41,22 +41,9 @@ build-base: base.stamp
 
 # Rebuild when the stamp is stale OR the image no longer exists
 # (stamps alone lie after `docker rmi`).
-base.stamp: docker/base/Dockerfile config/install_config.txt
-	@if [[ ! -f "$(AUTH_TOKEN_FILE)" ]]; then \
-		echo "No auth token at $(AUTH_TOKEN_FILE) — run 'make auth-token INSTALLER=<slim-installer.bin>' first"; \
-		exit 1; \
-	fi
-	@if [[ ! -f "$(INSTALLER)" ]]; then \
-		echo "No installer found — place the AMD slim installer .bin at the repo root or pass INSTALLER=<path>"; \
-		exit 1; \
-	fi
-	env DOCKER_BUILDKIT=1 docker build \
-		--platform linux/amd64 \
-		-t $(BASE_IMAGE) \
-		--build-arg VIVADO_VERSION=$(VIVADO_VERSION) \
-		--build-arg INSTALLER_BIN=$(INSTALLER) \
-		--secret id=xilinx_token,src=$(AUTH_TOKEN_FILE) \
-		-f docker/base/Dockerfile .
+base.stamp: docker/base/Dockerfile config/install_config.txt scripts/build.base.sh
+	env VIVADO_VERSION=$(VIVADO_VERSION) INSTALLER=$(INSTALLER) \
+		AUTH_TOKEN_FILE=$(AUTH_TOKEN_FILE) ./scripts/build.base.sh
 	touch $@
 
 build: build.stamp
@@ -64,12 +51,8 @@ build: build.stamp
 
 build.stamp: docker/tools/Dockerfile docker/tools/entrypoint.sh \
 		docker/udev_stub.c davit/Cargo.toml davit/Cargo.lock \
-		$(wildcard davit/src/*.rs) base.image.ok
-	env DOCKER_BUILDKIT=1 docker build \
-		--platform linux/amd64 \
-		-t $(TOOLS_IMAGE) \
-		--build-arg VIVADO_VERSION=$(VIVADO_VERSION) \
-		-f docker/tools/Dockerfile .
+		$(wildcard davit/src/*.rs) scripts/build.tools.sh base.image.ok
+	env VIVADO_VERSION=$(VIVADO_VERSION) ./scripts/build.tools.sh
 	touch $@
 
 # Force-refresh base when its image is missing, without rebuilding it
