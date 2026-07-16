@@ -21,6 +21,25 @@ use crate::pty::{spawn_on_pty, strip_prompt, PromptMatcher, Pty};
 use crate::util::{iso8601, iso8601_now, stamp_now, unix_now};
 
 const UDEV_STUB: &str = "/opt/udev_stub.so";
+
+/// Marks interpreter-level TCL failures surfaced by the exec catch
+/// wrapper; lines starting with it become `errors`, never `output`.
+/// No `%` characters: Vivado's REPL echo collapses `%%` sequences.
+const TCL_ERROR_SENTINEL: &str = "__DV_TCL_ERROR__";
+
+/// Continuation prompt Vivado prefixes to echoed multi-line input.
+const CONTINUATION_PROMPT: &str = "Vivado- ";
+
+/// Wrap user TCL so interpreter-level failures emit a sentinel line
+/// and successful results still echo like the bare REPL. The user's
+/// TCL runs verbatim at global scope inside the braces.
+fn wrap_tcl(tcl: &str) -> String {
+    format!(
+        "if {{[catch {{uplevel #0 {{\n{tcl}\n}}}} _dv_msg]}} \
+         {{puts \"{TCL_ERROR_SENTINEL} $_dv_msg\"}} \
+         elseif {{$_dv_msg ne {{}}}} {{puts $_dv_msg}}"
+    )
+}
 pub const TOOLS: [&str; 4] = ["xsct", "xsdb", "bootgen", "dtc"];
 
 struct Collector {
@@ -339,7 +358,11 @@ fn execute_tcl(shared: &Shared, tcl: &str) -> CommandResult {
     shared.write_meta();
     shared.log_line(&format!("command dispatch: {tcl}"));
 
-    // Arm the collector, then send.
+    // Arm the collector, then send. The command is wrapped (see
+    // wrap_tcl): Vivado's REPL prints bare TCL errors (e.g. `invalid
+    // command name "x"`) without any ERROR: prefix, so the sentinel is
+    // the only reliable failure signal.
+    let wrapper = wrap_tcl(tcl);
     {
         let mut c = shared.collector.lock().unwrap();
         c.buf = Some(Vec::new());
@@ -348,7 +371,7 @@ fn execute_tcl(shared: &Shared, tcl: &str) -> CommandResult {
     }
     {
         let mut w = shared.pty_writer.lock().unwrap();
-        let _ = w.write_all(tcl.as_bytes());
+        let _ = w.write_all(wrapper.as_bytes());
         let _ = w.write_all(b"\n");
         let _ = w.flush();
     }
@@ -372,10 +395,26 @@ fn execute_tcl(shared: &Shared, tcl: &str) -> CommandResult {
         shared.log_line(&e);
     }
     let mut filter = Filter::new(policy);
+    let mut tcl_errors: Vec<String> = Vec::new();
+    // The REPL echoes the dispatched lines back (continuation lines
+    // carry a "Vivado- " prefix). Consume that echo in send order so it
+    // never pollutes command output.
+    let wrapper_lines: Vec<&str> = wrapper.lines().collect();
+    let mut echo_idx = 0usize;
     for line in text.lines() {
-        filter.feed_line(line);
+        let candidate = line.strip_prefix(CONTINUATION_PROMPT).unwrap_or(line);
+        if echo_idx < wrapper_lines.len() && candidate == wrapper_lines[echo_idx] {
+            echo_idx += 1;
+            continue;
+        }
+        if let Some(msg) = line.strip_prefix(TCL_ERROR_SENTINEL) {
+            tcl_errors.push(format!("TCL error: {}", msg.trim_start()));
+        } else {
+            filter.feed_line(line);
+        }
     }
     let (mut output, mut errors) = filter.finish();
+    errors.extend(tcl_errors);
 
     if died {
         errors.push("Vivado process exited during the command".into());

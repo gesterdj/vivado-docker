@@ -30,12 +30,15 @@ WS="$(mktemp -d /tmp/davit-smoke.XXXXXX)"
 trap 'DV_WORKSPACE=${WS} "${REPO}/scripts/dv" stop --force >/dev/null 2>&1 || true; rm -rf "${WS}"' EXIT
 cd "${WS}"
 
-# Minimal empty project via a bootstrap batch run
+# Minimal empty project via a bootstrap batch run (first installed part)
+echo 'create_project smoke /workspace/smoke -part [lindex [get_parts] 0]; exit' \
+    > "${WS}/bootstrap.tcl"
 docker run --rm --init -u "$(id -u):$(id -g)" \
     -v "${WS}:/workspace" -w /workspace -e HOME=/workspace \
     --entrypoint bash "${IMAGE}" -lc \
     'LD_PRELOAD=/opt/udev_stub.so vivado -mode batch -nolog -nojournal \
-     -source /dev/stdin <<< "create_project smoke /workspace/smoke -part xc7z020clg400-1; exit"'
+     -source /workspace/bootstrap.tcl'
+rm -f "${WS}/bootstrap.tcl"
 ln -sf smoke/smoke.xpr smoke.xpr
 
 # --- sidecar mode ------------------------------------------------------
@@ -58,7 +61,8 @@ services:
     working_dir: /workspace
     command: ["/workspace/.dv/bin/dv", "exec", "get_projects"]
 EOF
-    docker compose up --abort-on-container-exit --exit-code-from sibling
+    # --exit-code-from implies abort-on-container-exit in compose v2
+    docker compose up --exit-code-from sibling
     check "sidecar exec via .dv/bin/dv after service_healthy" 0 $?
     docker compose run --rm sibling /workspace/.dv/bin/dv stop
     check "graceful stop from sibling" 0 $?
