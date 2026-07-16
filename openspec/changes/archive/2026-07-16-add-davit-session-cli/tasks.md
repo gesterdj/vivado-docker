@@ -93,10 +93,10 @@
 - [x] 8.1 Rust unit tests: filter state machine, result latch/cap,
       busy rejection, protocol framing, argv preservation with
       metacharacters
-- [ ] 8.2 Container smoke test (requires built image): start headless,
+- [x] 8.2 Container smoke test (requires built image): start headless,
       exec success/error/busy/timeout, show/logs/diagnose surfaces,
       run bootgen exit-code passthrough, graceful stop, host file
       ownership
-- [ ] 8.3 Sidecar smoke test: compose two services sharing a
+- [x] 8.3 Sidecar smoke test: compose two services sharing a
       workspace, `service_healthy` gating, `.dv/bin/dv` usage from
       the sibling with no preinstalled deps
