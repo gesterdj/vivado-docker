@@ -13,8 +13,6 @@
 #   WORK_DIR        Host directory to mount at /work (default: current dir)
 #   VIVADO_CMD      Command to run (default: interactive Vivado GUI)
 #                   Example for batch: VIVADO_CMD="vivado -mode batch -source /src/build.tcl"
-#   ROSETTA         Set to "1" to enable libudev stub for Apple Silicon
-#                   (default: auto-detect via uname -m)
 #   USB_DEVICE_DIR  Host directory for mounted USB devices (default: no path)
 #                   Override to enable USB support. USB Drivers needs to be installed on host.
 
@@ -43,20 +41,10 @@ fi
 
 mkdir -p "${WORK_DIR}"
 
-# Auto-detect Rosetta (Apple Silicon running x86_64 container)
-if [[ -z "${ROSETTA:-}" ]]; then
-  if [[ "$(uname -m)" == "arm64" ]]; then
-    ROSETTA=1
-  else
-    ROSETTA=0
-  fi
-fi
-
-# Build the preload string for Rosetta workaround
-PRELOAD_CMD=""
-if [[ "${ROSETTA}" == "1" ]]; then
-  PRELOAD_CMD="export LD_PRELOAD=/opt/udev_stub.so && "
-fi
+# Scope the universal libudev stub to the Vivado process tree. Vivado's
+# license manager and WebTalk scan udev devices, which misbehaves in
+# containers without a udev database.
+PRELOAD_CMD="export LD_PRELOAD=/opt/udev_stub.so && "
 
 # Default: interactive Vivado. Override VIVADO_CMD for batch mode.
 # For batch synthesis: VIVADO_CMD="vivado -mode batch -source /src/build.tcl"

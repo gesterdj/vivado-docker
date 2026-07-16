@@ -1,18 +1,18 @@
 /*
- * libudev stub — replaces libudev.so.1 to prevent crashes under Rosetta
- * x86_64 emulation on Apple Silicon.
+ * libudev stub — no-op udev implementations for Vivado in containers.
  *
  * Vivado's HAPRWebtalkHelper and license manager call
- * udev_enumerate_scan_devices() which triggers a realloc()/mremap_chunk()
- * crash in glibc under Rosetta. This stub provides no-op implementations
- * of the udev functions used by Vivado, returning empty results.
+ * udev_enumerate_scan_devices() at startup. Containers have no udev
+ * daemon or device database, and the scan can misbehave (crashes such
+ * as "realloc(): invalid pointer" / "mremap_chunk(): invalid pointer").
+ * This stub provides no-op implementations of the udev functions used
+ * by Vivado, returning empty results.
  *
- * On native x86_64 this stub is never loaded — zero impact on Linux.
- * Under Rosetta (Apple Silicon), loading this stub disables udev-based
- * hardware discovery: Vivado cannot enumerate JTAG cables or USB debug
- * probes. Hardware programming and debug are unavailable. Synthesis,
- * simulation, and bitstream generation are unaffected.
- * USB passthrough into Rosetta containers doesn't work regardless.
+ * Loading the stub disables udev-based hardware discovery inside the
+ * container: Vivado cannot enumerate JTAG cables or USB debug probes
+ * directly. Use a hw_server on the host (VIVADO_HW_SERVER_URL) for
+ * hardware access. Synthesis, simulation, and bitstream generation are
+ * unaffected.
  *
  * Usage: LD_PRELOAD=/opt/udev_stub.so vivado ...
  *

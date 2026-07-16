@@ -1,10 +1,6 @@
-# docs-structure Specification
+# docs-structure — Delta Specification
 
-## Purpose
-Define where user-facing usage instructions and agent-facing repository
-guidance live to avoid duplicated documentation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: README is the single source of usage instructions
 
@@ -31,21 +27,3 @@ structure and the purpose of each top-level folder.
 - **WHEN** a reader opens README.md
 - **THEN** a "Repository layout" section lists `scripts/`, `config/`,
   `docker/`, `davit/`, and `docs/` with one-line descriptions
-
-### Requirement: AGENTS.md contains only agent guidance without duplication
-`AGENTS.md` SHALL contain only agent-facing conventions (commit message
-format, markdown formatting rules, project constraints) and SHALL link to
-README.md sections for build/run/environment instructions instead of
-duplicating them.
-
-#### Scenario: No duplicated instructions
-- **WHEN** AGENTS.md is compared with README.md
-- **THEN** build steps, run commands, and environment variable tables
-  appear only in README.md, with AGENTS.md linking to the relevant
-  sections
-
-#### Scenario: Conventions retained
-- **WHEN** an agent reads AGENTS.md
-- **THEN** it finds the Conventional Commits rule, the 80-column markdown
-  rule, and the project constraints (ML Standard only, headless build, no
-  public image hosting)

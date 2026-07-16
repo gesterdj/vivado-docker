@@ -1,0 +1,4 @@
+# Drop the AMD slim (web) installer .bin here; it is never committed
+# (*.bin is ignored via the root .gitignore).
+*
+!.gitignore
