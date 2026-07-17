@@ -98,6 +98,28 @@ sleep 15
 "${PUB}" stop;                                     check "graceful stop" 0 $?
 set -e
 
+# --- coexistence: headless + GUI -----------------------------------------
+"${DV}" start --project smoke.xpr
+check "start headless again (idempotent)" 0 $?
+
+# Start GUI alongside headless
+set +e
+"${DV}" start gui 2>/dev/null; local gui_rc=$?
+set -e
+check "start gui alongside headless" 0 ${gui_rc}
+
+# Second GUI should be refused
+set +e
+"${DV}" start gui 2>/dev/null; local gui2_rc=$?
+set -e
+check "second gui refused" 1 ${gui2_rc}
+
+# dv exec still works against headless
+"${PUB}" exec 'get_projects' >/dev/null;           check "exec while gui open" 0 $?
+
+# stop --force removes both
+"${DV}" stop --force >/dev/null;                    check "stop --force sweeps both" 0 $?
+
 owner="$(stat -c %u:%g "${WS}/.dv/metadata.json")"
 [[ "${owner}" == "$(id -u):$(id -g)" ]]; check "host file ownership" 0 $?
 

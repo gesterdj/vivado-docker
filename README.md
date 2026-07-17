@@ -238,7 +238,7 @@ per-session machine state.
 | `dv logs [--tail N] [--follow]` | Raw session log (file read only) |
 | `dv diagnose last\|health\|inspect\|ps\|wchan\|...` | Read-only probes, never touches the session |
 | `dv run xsct\|xsdb\|bootgen\|dtc ARGS...` | Managed companion-tool operation |
-| `dv stop [--force]` | Graceful stop; `--force` needs the host launcher |
+| `dv stop [--force]` | Graceful stop; `--force` stops and removes both headless and GUI containers |
 
 Exit codes: `0` success, `1` Vivado error/busy/crash, `2` usage or no
 result, `3` client wait timed out (the command keeps running — retrieve
@@ -292,6 +292,15 @@ with `--gui-profile`. Hardware access goes through a host `hw_server`:
 `--jtag-host[=HOST:PORT]` (default `host.docker.internal:3121`, implied
 in GUI mode) exports `VIVADO_HW_SERVER_URL`; in Vivado connect with
 `open_hw_target -host ...`.
+
+A GUI can be opened alongside a running headless (batch) session in the
+same workspace. `dv start gui` checks only the GUI container;
+`dv start headless` checks only the headless container. A second
+`dv start gui` in the same workspace is refused with "gui already
+open". Concurrent access to the same `.xpr` from both sessions is the
+user's responsibility (Vivado's project locking degrades to read-only
+rather than corrupting). `dv stop --force` stops and removes both
+containers (headless and GUI) for the workspace.
 
 ### Launcher environment variables
 

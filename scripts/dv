@@ -24,6 +24,7 @@ SESSION_DIR="${WORKSPACE}/.dv"
 # adopting an unrelated container that happens to share the name.
 WS_HASH="$(printf '%s' "${WORKSPACE}" | cksum | cut -d' ' -f1)"
 CONTAINER="davit-${WS_HASH}"
+CONTAINER_GUI="${CONTAINER}-gui"
 LABEL="davit.workspace=${WORKSPACE}"
 
 die()  { echo "dv: $*" >&2; exit 1; }
@@ -36,9 +37,10 @@ runtime verbs need a container runtime on this host"
 }
 
 container_state() {
+    local name="${1:-${CONTAINER}}"
     docker inspect --format \
         '{{.State.Status}} {{index .Config.Labels "davit.workspace"}}' \
-        "${CONTAINER}" 2>/dev/null || true
+        "${name}" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------
@@ -98,6 +100,8 @@ gui_mount_args() {
             # Vivado is X11-based; keep DISPLAY for XWayland fallback.
             [[ -n "${DISPLAY:-}" ]] && GUI_ARGS+=(-e DISPLAY="${DISPLAY}")
             [[ -d /tmp/.X11-unix ]] && GUI_ARGS+=(-v /tmp/.X11-unix:/tmp/.X11-unix:ro)
+            [[ -n "${XAUTHORITY:-}" && -f "${XAUTHORITY}" ]] \
+                && GUI_ARGS+=(-v "${XAUTHORITY}:/tmp/.Xauthority:ro" -e XAUTHORITY=/tmp/.Xauthority)
             ;;
         *) usage "unknown --gui-profile '${profile}' (expected: x11, wayland, wsl)" ;;
     esac
@@ -139,19 +143,26 @@ EOF
     # GUI implies --jtag-host.
     [[ "${mode}" == gui ]] && jtag=1
 
-    local state; state="$(container_state)"
+    # Resolve the target container name from the mode.
+    local target="${CONTAINER}"
+    [[ "${mode}" == gui ]] && target="${CONTAINER_GUI}"
+
+    local state; state="$(container_state "${target}")"
     if [[ -n "${state}" ]]; then
         local status ws
         status="${state%% *}"; ws="${state#* }"
         [[ "${ws}" == "${WORKSPACE}" ]] \
-            || die "container ${CONTAINER} exists but belongs to a different workspace (${ws}); refusing to adopt it"
+            || die "container ${target} exists but belongs to a different workspace (${ws}); refusing to adopt it"
         if [[ "${status}" == running ]]; then
+            if [[ "${mode}" == gui ]]; then
+                die "gui already open for ${WORKSPACE}"
+            fi
             echo "dv: session already running for ${WORKSPACE}"
             [[ -x "${SESSION_DIR}/bin/dv" ]] && exec "${SESSION_DIR}/bin/dv" show status
             return 0
         fi
         # Stale stopped container from a previous session of this workspace.
-        runtime rm -f "${CONTAINER}" >/dev/null
+        runtime rm -f "${target}" >/dev/null
     fi
 
     local env_args=()
@@ -164,7 +175,7 @@ EOF
         gui_mount_args "${gui_profile:-$(detect_gui_profile)}"
         exec docker run --rm --init \
             --platform linux/amd64 \
-            --name "${CONTAINER}" --label "${LABEL}" \
+            --name "${CONTAINER_GUI}" --label "${LABEL}" --label "davit.session=gui" \
             -u "$(id -u):$(id -g)" \
             -v "${WORKSPACE}:/workspace:rw" \
             -w /workspace \
@@ -204,12 +215,19 @@ EOF
 }
 
 cmd_stop_force() {
-    local state; state="$(container_state)"
-    [[ -n "${state}" ]] || die "no managed session container (${CONTAINER}) found"
-    echo "dv: forcing session container down (in-flight results may be lost)" >&2
-    runtime stop -t 15 "${CONTAINER}" >/dev/null || runtime kill "${CONTAINER}" >/dev/null
-    runtime rm -f "${CONTAINER}" >/dev/null 2>&1 || true
-    echo "dv: session container removed"
+    local found=0
+    for target in "${CONTAINER}" "${CONTAINER_GUI}"; do
+        local state; state="$(container_state "${target}")"
+        [[ -n "${state}" ]] || continue
+        local ws="${state#* }"
+        [[ "${ws}" == "${WORKSPACE}" ]] || continue
+        found=1
+        echo "dv: forcing session container down (in-flight results may be lost)" >&2
+        runtime stop -t 15 "${target}" >/dev/null || runtime kill "${target}" >/dev/null
+        runtime rm -f "${target}" >/dev/null 2>&1 || true
+        echo "dv: container ${target} removed"
+    done
+    [[ "${found}" -eq 1 ]] || die "no managed session container (${CONTAINER} / ${CONTAINER_GUI}) found"
 }
 
 # ---------------------------------------------------------------------
